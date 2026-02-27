@@ -1,38 +1,42 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "./db";
+import {
+  auditMetrics,
+  systemHealth,
+  securityAlerts,
+  type AuditMetric,
+  type SystemHealth,
+  type SecurityAlert,
+} from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  getAuditMetrics(): Promise<AuditMetric[]>;
+  getSystemHealth(): Promise<SystemHealth | undefined>;
+  getSecurityAlerts(): Promise<SecurityAlert[]>;
+  resolveSecurityAlert(id: number): Promise<SecurityAlert>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
+export class DatabaseStorage implements IStorage {
+  async getAuditMetrics(): Promise<AuditMetric[]> {
+    return await db.select().from(auditMetrics).orderBy(desc(auditMetrics.timestamp)).limit(100);
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getSystemHealth(): Promise<SystemHealth | undefined> {
+    const health = await db.select().from(systemHealth).orderBy(desc(systemHealth.timestamp)).limit(1);
+    return health[0];
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async getSecurityAlerts(): Promise<SecurityAlert[]> {
+    return await db.select().from(securityAlerts).orderBy(desc(securityAlerts.timestamp)).limit(50);
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async resolveSecurityAlert(id: number): Promise<SecurityAlert> {
+    const [updated] = await db.update(securityAlerts)
+      .set({ resolved: true })
+      .where(eq(securityAlerts.id, id))
+      .returning();
+    return updated;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
